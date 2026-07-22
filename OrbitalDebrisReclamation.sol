@@ -2,119 +2,190 @@
 pragma solidity ^0.8.20;
 
 /**
- * @title OrbitalDebrisReclamation
- * @notice Enterprise-grade DePIN smart contract for autonomous orbital debris recycling.
- * Features strict industrial funding, designated drop-zone tracking, and authorized smelter enforcement.
- * Economic Split: 20% to the independent scrapper, 80% to the certified regional smelter.
+ * @title OrbitalDebrisReclamation (Version 2.0 - Hackathon Winners Edition)
+ * @notice Part of the "Want to Mars" ecosystem (Galileo Network).
+ * @dev Gas-optimized (external/calldata), Pull Payment pattern, reset timer fix, and Social Relief module.
  */
 contract OrbitalDebrisReclamation {
-    address public spaceXAdmin;       // Mission coordinator (Elon Musk)
-    address public authorizedSmelter; // The only certified recycling facility allowed to process scrap
 
-    enum MetalType { Aluminum, Titanium, Tungsten }
+    // --- ENUMS & STRUCTS ---
+
+    enum MetalType { Titanium, Aluminum, Steel, Copper, RareEarth }
 
     struct DebrisObject {
-        string objectName;
-        string dropZoneCoordinates; // e.g., "Drop Zone: Sector 7-Alpha (Texas Desert)"
+        uint256 id;
+        string name;
+        string coordinates;
         MetalType metalType;
-        uint256 totalWeightKg;
-        uint256 rawValueWei;        // Hardcoded processing budget allocated by SpaceX
-        bool isProcessed;
+        uint256 weightKg;
+        uint256 rewardValueWei;
+        bool isRecycled;
     }
 
-    DebrisObject[] public trackedDebris;
-    
-    // Closed-loop aerospace industrial warehouse inventory
-    uint256 public recycledTitaniumKg;
-    uint256 public recycledTungstenKg;
-    uint256 public recycledAluminumKg;
+    struct SocialReliefHub {
+        string hubName;
+        address walletAddress; // Vault/Multisig address of the social fund
+        bool isActive;
+    }
 
-    // Strict 100% economic distribution split (No leftovers inside the contract)
-    uint256 public constant SCRAPPER_PAYOUT_PERCENT = 20; // Risk and retrieval labor reward
-    uint256 public constant SMELTER_EXPENSE_PERCENT = 80; // High-energy induction furnace compensation
+    struct Deposit {
+        uint256 amount;
+        uint256 timestamp;
+    }
 
-    event DebrisRegistered(uint256 indexed assetId, string name, string coordinates, uint256 weight);
-    event MaterialRefined(uint256 indexed assetId, MetalType metal, uint256 weight);
-    event RocketBuilt(string rocketType, uint256 titaniumUsed);
-    event SmelterUpdated(address indexed newSmelter);
+    // --- STATE VARIABLES ---
+
+    address public admin;
+    uint256 public nextAssetId;
+
+    mapping(uint256 => DebrisObject) public trackedDebris;
+    mapping(MetalType => uint256) public recycledMetalsKg;
+    mapping(address => Deposit) public pendingBalances;
+    mapping(address => SocialReliefHub) public socialHubs;
+
+    // --- EVENTS ---
+
+    event AssetRegistered(uint256 indexed assetId, string name, string coordinates, uint256 rewardValueWei);
+    event ScrapProcessed(uint256 indexed assetId, address indexed smelter, address indexed scrapper, uint256 totalReward);
+    event FundsDeposited(address indexed beneficiary, uint256 amount);
+    event FundsWithdrawn(address indexed beneficiary, uint256 amount);
+    event UnclaimedFundsReclaimed(address indexed beneficiary, uint256 amount);
+    event SocialHubRegistered(address indexed hubAddress, address indexed fundsWallet, string name);
+
+    // --- MODIFIERS ---
 
     modifier onlyAdmin() {
-        require(msg.sender == spaceXAdmin, "Access denied: SpaceX Admin only");
+        require(msg.sender == admin, "Caller is not admin");
         _;
     }
 
-    modifier onlyAuthorizedSmelter() {
-        require(msg.sender == authorizedSmelter, "Access denied: Unauthorized processing point");
-        _;
+    constructor() payable {
+        admin = msg.sender;
     }
 
-    // Deployer funds the operational pool immediately upon contract deployment
-    constructor(address _authorizedSmelter) payable {
-        spaceXAdmin = msg.sender;
-        authorizedSmelter = _authorizedSmelter; // Setting up the contractually bound smelter address
-    }
+    // --- 1. ASSET REGISTRATION (Gas-Optimized: external + calldata) ---
 
-    // Allows Elon Musk to replenish the factory operational budget at any time
-    function fundOperationalPool() public payable onlyAdmin {}
-
-    // Allows changing the factory address if SpaceX signs a contract with a new facility
-    function updateAuthorizedSmelter(address _newSmelter) public onlyAdmin {
-        require(_newSmelter != address(0), "Invalid smelter address");
-        authorizedSmelter = _newSmelter;
-        emit SmelterUpdated(_newSmelter);
-    }
-
-    // 1. REGISTRATION: Admin logs a controlled impact event at the designated coordinates
     function registerDroppedAsset(
-        string memory _name, 
-        string memory _coordinates,
-        MetalType _type, 
-        uint256 _weight, 
-        uint256 _valueWei
-    ) public onlyAdmin {
-        trackedDebris.push(DebrisObject(_name, _coordinates, _type, _weight, _valueWei, false));
-        emit DebrisRegistered(trackedDebris.length - 1, _name, _coordinates, _weight);
+        string calldata _name,
+        string calldata _coordinates, // E.g., "Nevada, Area 51" or "Texas, Sector 4"
+        MetalType _metalType,
+        uint256 _weightKg
+    ) external payable onlyAdmin {
+        require(msg.value > 0, "Reward value must be greater than zero");
+
+        uint256 assetId = nextAssetId;
+
+        trackedDebris[assetId] = DebrisObject({
+            id: assetId,
+            name: _name,
+            coordinates: _coordinates,
+            metalType: _metalType,
+            weightKg: _weightKg,
+            rewardValueWei: msg.value,
+            isRecycled: false
+        });
+
+        nextAssetId++;
+
+        emit AssetRegistered(assetId, _name, _coordinates, msg.value);
     }
 
-    // 2. INDUSTRIAL PROCESSING: Only the authorized smelter can trigger execution and distribute rewards
-    function processScrap(uint256 _objectId, address payable _scrapperAddress) public onlyAuthorizedSmelter {
-        DebrisObject storage debris = trackedDebris[_objectId];
-        require(!debris.isProcessed, "Asset already processed");
+    // --- 2. SCRAP PROCESSING & REWARD DISTRIBUTION ---
+
+    function processScrap(
+        uint256 _assetId,
+        address _smelterAddress,
+        address _scrapperAddress
+    ) external onlyAdmin {
+        DebrisObject storage debris = trackedDebris[_assetId];
+
+        require(!debris.isRecycled, "Asset already recycled");
+        require(_smelterAddress != address(0), "Invalid smelter address");
         require(_scrapperAddress != address(0), "Invalid scrapper address");
+
+        debris.isRecycled = true;
+
+        recycledMetalsKg[debris.metalType] += debris.weightKg;
+
+        uint256 totalValue = debris.rewardValueWei;
+        uint256 smelterReward = (totalValue * 80) / 100;
+        uint256 scrapperReward = totalValue - smelterReward;
+
+        _addPendingBalance(_smelterAddress, smelterReward);
+
+        // Check if the scrapper address is registered as an active Social Relief Hub
+        if (socialHubs[_scrapperAddress].isActive) {
+            // Funds are routed directly to the Social Fund Vault
+            _addPendingBalance(socialHubs[_scrapperAddress].walletAddress, scrapperReward);
+        } else {
+            // Funds are routed to the regular scrapper address
+            _addPendingBalance(_scrapperAddress, scrapperReward);
+        }
+
+        emit ScrapProcessed(_assetId, _smelterAddress, _scrapperAddress, totalValue);
+    }
+
+    // --- 3. WITHDRAWAL (Pull Payment Pattern) ---
+
+    function withdraw() external {
+        uint256 amount = pendingBalances[msg.sender].amount;
+        require(amount > 0, "No funds available for withdrawal");
+
+        pendingBalances[msg.sender].amount = 0;
+        pendingBalances[msg.sender].timestamp = 0;
+
+        (bool success, ) = msg.sender.call{value: amount}("");
+        require(success, "Transfer failed");
+
+        emit FundsWithdrawn(msg.sender, amount);
+    }
+
+    // --- 4. RECLAIM UNCLAIMED FUNDS (30-Day Expiration) ---
+
+    function reclaimUnclaimedFunds(address _abandonedAddress) external onlyAdmin {
+        Deposit storage dep = pendingBalances[_abandonedAddress];
+        require(dep.amount > 0, "No funds to reclaim");
+        require(block.timestamp >= dep.timestamp + 30 days, "Hold period not expired (30 days)");
+
+        uint256 reclaimedAmount = dep.amount;
+        dep.amount = 0;
+        dep.timestamp = 0;
+
+        (bool success, ) = admin.call{value: reclaimedAmount}("");
+        require(success, "Reclaim transfer failed");
+
+        emit UnclaimedFundsReclaimed(_abandonedAddress, reclaimedAmount);
+    }
+
+    // --- 5. SOCIAL RELIEF HUB MANAGEMENT ---
+
+    function registerSocialHub(
+        address _hubAddress, 
+        address _fundsWallet, 
+        string calldata _hubName
+    ) external onlyAdmin {
+        require(_hubAddress != address(0) && _fundsWallet != address(0), "Invalid address");
         
-        uint256 totalValue = debris.rawValueWei;
-        uint256 operatorReward = (totalValue * SCRAPPER_PAYOUT_PERCENT) / 100;
-        uint256 smelterComp = (totalValue * SMELTER_EXPENSE_PERCENT) / 100;
+        socialHubs[_hubAddress] = SocialReliefHub({
+            hubName: _hubName,
+            walletAddress: _fundsWallet, // Designated fund vault
+            isActive: true
+        });
 
-        // Double check liquidity availability
-        require(address(this).balance >= totalValue, "Operational pool depleted");
-
-        debris.isProcessed = true;
-
-        // 100% efficiency: entire weight moves into SpaceX smart storage
-        if (debris.metalType == MetalType.Aluminum) recycledAluminumKg += debris.totalWeightKg;
-        if (debris.metalType == MetalType.Titanium) recycledTitaniumKg += debris.totalWeightKg;
-        if (debris.metalType == MetalType.Tungsten) recycledTungstenKg += debris.totalWeightKg;
-
-        emit MaterialRefined(_objectId, debris.metalType, debris.totalWeightKg);
-
-        // Safe immediate financial distribution (Gas-optimized low level calls)
-        (bool successScrap, ) = _scrapperAddress.call{value: operatorReward}("");
-        require(successScrap, "Scrapper payout failed");
-
-        (bool successSmelt, ) = payable(authorizedSmelter).call{value: smelterComp}("");
-        require(successSmelt, "Smelter payout failed");
+        emit SocialHubRegistered(_hubAddress, _fundsWallet, _hubName);
     }
 
-    // 3. CLOSED-LOOP CONSUMPTION: SpaceX utilizes recycled metal directly for production
-    function buildStarshipHull(uint256 _requiredTitaniumKg) public onlyAdmin {
-        require(recycledTitaniumKg >= _requiredTitaniumKg, "Insufficient titanium reserves in warehouse");
-        recycledTitaniumKg -= _requiredTitaniumKg;
-        
-        emit RocketBuilt("Starship v3", _requiredTitaniumKg);
+    // --- INTERNAL FUNCTIONS ---
+
+    function _addPendingBalance(address _beneficiary, uint256 _amount) internal {
+        // Reset timer only if the balance was zero (prevents lockup reset for active accounts)
+        if (pendingBalances[_beneficiary].amount == 0) {
+            pendingBalances[_beneficiary].timestamp = block.timestamp;
+        }
+
+        pendingBalances[_beneficiary].amount += _amount;
+        emit FundsDeposited(_beneficiary, _amount);
     }
 
-    function getPoolBalance() public view returns (uint256) {
-        return address(this).balance;
-    }
+    receive() external payable {}
 }
