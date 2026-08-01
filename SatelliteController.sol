@@ -2,9 +2,16 @@
 pragma solidity ^0.8.20;
 
 /**
+ * @dev Interface for cross-contract budget locking on the Recycling Base / Vault.
+ */
+interface IMetalBase {
+    function lockDebrisBudget(uint256 targetId, uint256 amount) external returns (bool);
+}
+
+/**
  * @title SatelliteController
- * @dev Autonomous Orbit Operations & Satellite Autopilot powered by Decentralized Autonomous Agents.
- * Refactored state handling & security checks.
+ * @dev Autonomous Orbit Operations & Satellite Autopilot.
+ * Implemented two-stage MadKing maneuver and cross-contract budget locking.
  */
 contract SatelliteController {
     
@@ -47,7 +54,8 @@ contract SatelliteController {
     
     // --- 📣 EVENTS ---
     event TargetRegistered(uint256 indexed targetId, bytes32 indexed telemetryMerkleRoot, uint256 estCost);
-    event MadKingActivated(uint256 indexed targetId, string reason);
+    event MadKingStarted(uint256 indexed targetId, string reason);
+    event MadKingFinished(uint256 indexed targetId);
     event EcoBlockTriggered(uint256 indexed targetId, uint256 calculatedHarm);
     event DebrisDisposed(uint256 indexed targetId, string method);
     event EmergencyStateToggled(bool isStopped);
@@ -74,6 +82,10 @@ contract SatelliteController {
     // --- ⚙️ EARTH CONTROL MANAGEMENT ---
     function setAutonomousAgent(address _newPKP) external onlyEarth {
         autonomousAgentPKP = _newPKP;
+    }
+
+    function setBaseFactoryAddress(address _newBase) external onlyEarth {
+        baseFactoryAddress = _newBase;
     }
 
     function toggleEmergencyStop() external onlyEarth {
@@ -111,8 +123,8 @@ contract SatelliteController {
         emit TargetRegistered(_targetId, _telemetryMerkleRoot, _estRemovalCost);
     }
 
-    // --- 🔥 2. MAD KING PROTOCOL & ECO-SHIELD (Safe Return) ---
-    function executeMadKingProtocol(uint256 _targetId) external onlyAutopilot {
+    // --- 🔥 2A. START MAD KING PROTOCOL (Step 1) ---
+    function startMadKingProtocol(uint256 _targetId) external onlyAutopilot {
         DebrisTarget storage target = targets[_targetId];
         require(target.exists, "Target does not exist!");
         require(!target.isBurnedInAtmosphere && !target.isCapturedForBase, "Target already processed!");
@@ -120,33 +132,40 @@ contract SatelliteController {
         // 🧮 Off-chain validation formula
         uint256 calculatedOzoneHarm = (uint256(target.weightKg) * uint256(target.aluminumPercent)) / 10;
 
-        // 🛡️ Eco-Shield Check (Soft Lockout without revert)
+        // 🛡️ Eco-Shield Check
         if (calculatedOzoneHarm > maxOzoneHarmThreshold) {
             currentSatelliteState = SatelliteState.EcoBlocked;
             emit EcoBlockTriggered(_targetId, calculatedOzoneHarm);
             return;
         }
 
-        // 🔥 Activate Mad King
+        // 🔥 Set satellite state to active MadKing burning mode
         currentSatelliteState = SatelliteState.MadKing;
+        emit MadKingStarted(_targetId, "Clearing trajectory corridor via Burn Them All Protocol");
+    }
+
+    // --- 🔥 2B. FINISH MAD KING PROTOCOL (Step 2) ---
+    function finishMadKingProtocol(uint256 _targetId) external onlyAutopilot {
+        require(currentSatelliteState == SatelliteState.MadKing, "Satellite is not in MadKing mode!");
+        DebrisTarget storage target = targets[_targetId];
+
         target.isBurnedInAtmosphere = true;
+        emit DebrisDisposed(_targetId, "Atmospheric Vaporization Completed");
+        emit MadKingFinished(_targetId);
 
-        emit MadKingActivated(_targetId, "Clearing trajectory corridor via Burn Them All Protocol");
-        emit DebrisDisposed(_targetId, "Atmospheric Vaporization");
-
-        // Return to navigation
+        // Return satellite to navigation mode
         currentSatelliteState = SatelliteState.Navigating;
     }
 
-    // --- 💰 3. BASE BALANCE CHECK & CAPTURE ---
+    // --- 💰 3. CROSS-CONTRACT BUDGET LOCK & CAPTURE ---
     function captureForBase(uint256 _targetId) external onlyAutopilot {
         DebrisTarget storage target = targets[_targetId];
         require(target.exists, "Target does not exist!");
         require(!target.isBurnedInAtmosphere && !target.isCapturedForBase, "Target already processed!");
 
-        // 💵 Check Base vault balance
-        uint256 baseBalance = baseFactoryAddress.balance;
-        require(baseBalance >= target.estRemovalCost, "Budget Lock: Base does not have enough funds for capture!");
+        // 🔗 Cross-contract interaction: lock budget directly in the Base Vault
+        bool success = IMetalBase(baseFactoryAddress).lockDebrisBudget(_targetId, target.estRemovalCost);
+        require(success, "Budget Lock Failed on Recycled Base!");
 
         target.isCapturedForBase = true;
         currentSatelliteState = SatelliteState.Idle;
