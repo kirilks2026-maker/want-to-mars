@@ -4,7 +4,7 @@ pragma solidity ^0.8.20;
 /**
  * @title SatelliteController
  * @dev Autonomous Orbit Operations & Satellite Autopilot powered by Decentralized Autonomous Agents.
- * Designed for EVM-compatible networks.
+ * Refactored state handling & security checks.
  */
 contract SatelliteController {
     
@@ -15,13 +15,15 @@ contract SatelliteController {
     
     bool public emergencyStopped;      // Emergency kill switch from Earth
     
-    // --- ⚡ GAS OPTIMIZATION: State Flags ---
-    uint8 public constant STATE_IDLE           = 1;  // 00000001 — Standby / Idle
-    uint8 public constant STATE_NAVIGATING     = 2;  // 00000010 — Rendezvous / Navigation
-    uint8 public constant STATE_MAD_KING       = 4;  // 00000100 — Mad King Protocol (Burn Them All)
-    uint8 public constant STATE_ECO_BLOCKED    = 8;  // 00001000 — Environmental Hazard Lockout
+    // --- 🛰️ State Handling via Enum ---
+    enum SatelliteState {
+        Idle,         // 0 — Standby
+        Navigating,   // 1 — Rendezvous / Navigation
+        MadKing,      // 2 — Mad King Protocol (Active Burning)
+        EcoBlocked    // 3 — Environmental Hazard Lockout
+    }
     
-    uint8 public currentSatelliteState;
+    SatelliteState public currentSatelliteState;
 
     // --- 🌍 ENVIRONMENTAL LIMITS ---
     uint256 public maxOzoneHarmThreshold = 1000; // Maximum allowed atmospheric harm index per operation
@@ -37,6 +39,7 @@ contract SatelliteController {
         bytes32 telemetryMerkleRoot; // Merkle root of telemetry & HD imaging (Off-chain Data)
         bool isBurnedInAtmosphere;
         bool isCapturedForBase;
+        bool exists;                 // Protection against target ID overwrite
     }
 
     // Target Debris ID => Debris Data
@@ -65,7 +68,7 @@ contract SatelliteController {
         owner = msg.sender;
         autonomousAgentPKP = _autonomousAgentPKP;
         baseFactoryAddress = _baseFactoryAddress;
-        currentSatelliteState = STATE_IDLE;
+        currentSatelliteState = SatelliteState.Idle;
     }
 
     // --- ⚙️ EARTH CONTROL MANAGEMENT ---
@@ -78,7 +81,7 @@ contract SatelliteController {
         emit EmergencyStateToggled(emergencyStopped);
     }
 
-    // --- 🛰️ 1. TARGET REGISTRATION & BUDGET VERIFICATION ---
+    // --- 🛰️ 1. TARGET REGISTRATION ---
     function registerTarget(
         uint256 _targetId,
         uint32 _length,
@@ -89,6 +92,7 @@ contract SatelliteController {
         uint256 _estRemovalCost,
         bytes32 _telemetryMerkleRoot
     ) external onlyAutopilot {
+        require(!targets[_targetId].exists, "Security: Target ID already registered!");
         
         targets[_targetId] = DebrisTarget({
             length: _length,
@@ -99,46 +103,45 @@ contract SatelliteController {
             estRemovalCost: _estRemovalCost,
             telemetryMerkleRoot: _telemetryMerkleRoot,
             isBurnedInAtmosphere: false,
-            isCapturedForBase: false
+            isCapturedForBase: false,
+            exists: true
         });
 
+        currentSatelliteState = SatelliteState.Navigating;
         emit TargetRegistered(_targetId, _telemetryMerkleRoot, _estRemovalCost);
     }
 
-    // --- 🔥 2. MAD KING PROTOCOL (`burnThemAll`) & ECO-SHIELD ---
-    /**
-     * @dev Autonomous execution function.
-     * Evaluates debris toxicity before clearing trajectory corridor.
-     * Burns debris in atmosphere if environmental threshold is respected.
-     */
+    // --- 🔥 2. MAD KING PROTOCOL & ECO-SHIELD (Safe Return) ---
     function executeMadKingProtocol(uint256 _targetId) external onlyAutopilot {
         DebrisTarget storage target = targets[_targetId];
+        require(target.exists, "Target does not exist!");
         require(!target.isBurnedInAtmosphere && !target.isCapturedForBase, "Target already processed!");
 
-        // 🧮 Off-chain validation formula: Harm Index = Weight * Aluminum %
+        // 🧮 Off-chain validation formula
         uint256 calculatedOzoneHarm = (uint256(target.weightKg) * uint256(target.aluminumPercent)) / 10;
 
-        // 🛡️ Eco-Shield Verification
+        // 🛡️ Eco-Shield Check (Soft Lockout without revert)
         if (calculatedOzoneHarm > maxOzoneHarmThreshold) {
-            currentSatelliteState = STATE_ECO_BLOCKED;
+            currentSatelliteState = SatelliteState.EcoBlocked;
             emit EcoBlockTriggered(_targetId, calculatedOzoneHarm);
-            revert("Eco-Shield: Debris is too toxic for atmospheric burning! Reroute to Base.");
+            return;
         }
 
-        // 🔥 Activate Mad King Protocol
-        currentSatelliteState = STATE_MAD_KING;
+        // 🔥 Activate Mad King
+        currentSatelliteState = SatelliteState.MadKing;
         target.isBurnedInAtmosphere = true;
 
         emit MadKingActivated(_targetId, "Clearing trajectory corridor via Burn Them All Protocol");
         emit DebrisDisposed(_targetId, "Atmospheric Vaporization");
 
-        // Return satellite to navigation mode
-        currentSatelliteState = STATE_NAVIGATING;
+        // Return to navigation
+        currentSatelliteState = SatelliteState.Navigating;
     }
 
-    // --- 💰 3. BASE BALANCE CHECK & HEAVY DEBRIS CAPTURE ---
+    // --- 💰 3. BASE BALANCE CHECK & CAPTURE ---
     function captureForBase(uint256 _targetId) external onlyAutopilot {
         DebrisTarget storage target = targets[_targetId];
+        require(target.exists, "Target does not exist!");
         require(!target.isBurnedInAtmosphere && !target.isCapturedForBase, "Target already processed!");
 
         // 💵 Check Base vault balance
@@ -146,13 +149,8 @@ contract SatelliteController {
         require(baseBalance >= target.estRemovalCost, "Budget Lock: Base does not have enough funds for capture!");
 
         target.isCapturedForBase = true;
-        currentSatelliteState = STATE_IDLE;
+        currentSatelliteState = SatelliteState.Idle;
 
         emit DebrisDisposed(_targetId, "Captured and Rerouted to Recycled Base");
-    }
-
-    // Auxiliary state changer
-    function setSatelliteState(uint8 _newState) external onlyAutopilot {
-        currentSatelliteState = _newState;
     }
 }
