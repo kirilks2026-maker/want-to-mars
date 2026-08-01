@@ -11,7 +11,7 @@ interface IMetalBase {
 /**
  * @title SatelliteController
  * @dev Autonomous Orbit Operations & Satellite Autopilot.
- * Implemented two-stage MadKing maneuver and cross-contract budget locking.
+ * Fully hardened version with state-lock protection and cross-contract interop.
  */
 contract SatelliteController {
     
@@ -44,8 +44,9 @@ contract SatelliteController {
         uint8  aluminumPercent;      // Ratio of aluminum / toxic metals (0-100%)
         uint256 estRemovalCost;      // Estimated deorbiting cost
         bytes32 telemetryMerkleRoot; // Merkle root of telemetry & HD imaging (Off-chain Data)
-        bool isBurnedInAtmosphere;
-        bool isCapturedForBase;
+        bool isBurnedInAtmosphere;   // Burn status flag
+        bool isCapturedForBase;      // Base capture flag
+        bool isEcoBlocked;           // Eco-shield lock flag (Prevents infinite retry loops)
         bool exists;                 // Protection against target ID overwrite
     }
 
@@ -88,7 +89,7 @@ contract SatelliteController {
         baseFactoryAddress = _newBase;
     }
 
-    function toggleEmergencyStop() external onlyEarth {
+    function toggleEmergencyStop() external onlyEmergencyStopAllowed {
         emergencyStopped = !emergencyStopped;
         emit EmergencyStateToggled(emergencyStopped);
     }
@@ -116,6 +117,7 @@ contract SatelliteController {
             telemetryMerkleRoot: _telemetryMerkleRoot,
             isBurnedInAtmosphere: false,
             isCapturedForBase: false,
+            isEcoBlocked: false,
             exists: true
         });
 
@@ -128,18 +130,20 @@ contract SatelliteController {
         DebrisTarget storage target = targets[_targetId];
         require(target.exists, "Target does not exist!");
         require(!target.isBurnedInAtmosphere && !target.isCapturedForBase, "Target already processed!");
+        require(!target.isEcoBlocked, "Eco-Shield: Target is eco-blocked from burning!");
 
         // 🧮 Off-chain validation formula
         uint256 calculatedOzoneHarm = (uint256(target.weightKg) * uint256(target.aluminumPercent)) / 10;
 
-        // 🛡️ Eco-Shield Check
+        // 🛡️ Eco-Shield Verification with lock flag
         if (calculatedOzoneHarm > maxOzoneHarmThreshold) {
+            target.isEcoBlocked = true; // Permanently lock target from burning
             currentSatelliteState = SatelliteState.EcoBlocked;
             emit EcoBlockTriggered(_targetId, calculatedOzoneHarm);
             return;
         }
 
-        // 🔥 Set satellite state to active MadKing burning mode
+        // 🔥 Activate Mad King burning mode
         currentSatelliteState = SatelliteState.MadKing;
         emit MadKingStarted(_targetId, "Clearing trajectory corridor via Burn Them All Protocol");
     }
@@ -173,3 +177,4 @@ contract SatelliteController {
         emit DebrisDisposed(_targetId, "Captured and Rerouted to Recycled Base");
     }
 }
+
