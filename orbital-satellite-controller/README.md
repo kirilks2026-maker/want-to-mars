@@ -8,7 +8,7 @@ An EVM-compatible smart contract governing autonomous orbit cleanup, space debri
 
 - **Contract Name:** `SatelliteController`
 - **Network:** LitVM / Liteforge Testnet
-- **Deployed Address:** `0xB006086465CfD748854Ec4328B4a577A16Ab1E2E`
+- **Deployed Address:** `0xd1837aBD2E9796900DeE10DC6C1D70833a1eE291`
 - **Compiler Version:** Solidity v0.8.20
 - **EVM Version:** Paris / Shanghai
 
