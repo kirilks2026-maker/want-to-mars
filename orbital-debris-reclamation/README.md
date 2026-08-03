@@ -25,6 +25,18 @@ This smart contract manages the physical reclamation, tracking, and incentivized
 
 ---
 
+### 🌍 Socio-Economic Inclusivity & Off-Chain "Zero-Barrier" Onboarding
+
+The **Social Relief Hub** module is specifically engineered to bridge the gap between high-tech decentralized infrastructure and marginalized, unbanked field collectors (Scrappers) who face extreme economic hardship and lack access to smartphones, internet, or Web3 wallets.
+
+#### The Physical-to-Digital Care Proxy Cycle:
+1. **Zero-Barrier Collection**: Impoverished or unbanked individuals can physically retrieve and deliver localized orbital debris directly to a certified Smelter Facility without any prior cryptographic setup or staking requirements.
+2. **Automated Institutional Routing**: If a collector does not possess a Web3 address, the processing admin designates the recipient as an active *Social Relief Hub* address. The smart contract automatically splits the reward via the 80/20 standard, routing the 20% scrapper share directly into a secured Multisig Vault managed by a registered humanitarian entity.
+3. **Physical Off-Ramp & Rehabilitation**: The designated Social Relief Hub acts as a physical custodian. Instead of direct token transfers, it converts the on-chain value into immediate, life-saving off-chain resources for the collector:
+   * Emergency food security and clean water.
+   * Sanitary and medical care access.
+   * Clothing and temporary shelter onboarding.
+4. **Liquidity Distribution**: The remaining balance of the earned reward is safely held and distributed to the collector by the hub in local fiat currency or physical resources, empowering underrepresented participants to transition from survival to stable, long-term protocol engagement.
 ## 🛠️ Security & Architecture Features
 
 - **Pull-Payment Dividend Pattern:** Zeroes pending balances prior to executing modern `.call{value: amount}("")` native transfers to eliminate Reentrancy risks.
