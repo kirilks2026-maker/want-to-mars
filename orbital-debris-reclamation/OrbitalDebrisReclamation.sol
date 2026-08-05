@@ -2,11 +2,11 @@
 pragma solidity ^0.8.20;
 
 /**
- * @title OrbitalDebrisReclamation (Version 2.0 - Hackathon Winners Edition)
- * @notice Part of the "Want to Mars" ecosystem (Galileo Network).
- * @dev Gas-optimized (external/calldata), Pull Payment pattern, reset timer fix, and Social Relief module.
+ * @title OrbitalDebrisReclamationAndSmelter (Version 3.0)
+ * @notice Core Vault & Processing Base for the "Want to Mars" ecosystem.
+ * @dev Gas-optimized, features cross-contract sync, pluggable architecture, and partial delivery support.
  */
-contract OrbitalDebrisReclamation {
+contract OrbitalDebrisReclamationAndSmelter {
 
     // --- ENUMS & STRUCTS ---
 
@@ -17,14 +17,17 @@ contract OrbitalDebrisReclamation {
         string name;
         string coordinates;
         MetalType metalType;
-        uint256 weightKg;
-        uint256 rewardValueWei;
-        bool isRecycled;
+        uint256 totalWeightKg;       // Initial estimated weight received from the satellite
+        uint256 processedWeightKg;   // Mass actually delivered and processed on Earth
+        uint256 rewardValueWei;      // Total locked native ETH budget allocated for rewards
+        uint256 paidOutWei;          // Total rewards distributed for delivered parts so far
+        bool isFullyRecycled;        // Flips to true when processedWeightKg == totalWeightKg
+        bool exists;                 // Protection against ID duplication
     }
 
     struct SocialReliefHub {
         string hubName;
-        address walletAddress; // Vault/Multisig address of the social fund
+        address walletAddress;       // Vault/Multisig address of the humanitarian fund
         bool isActive;
     }
 
@@ -36,6 +39,7 @@ contract OrbitalDebrisReclamation {
     // --- STATE VARIABLES ---
 
     address public admin;
+    address public satelliteController; // Address of the deployed orbit autopilot contract
     uint256 public nextAssetId;
 
     mapping(uint256 => DebrisObject) public trackedDebris;
@@ -43,19 +47,27 @@ contract OrbitalDebrisReclamation {
     mapping(address => Deposit) public pendingBalances;
     mapping(address => SocialReliefHub) public socialHubs;
 
+    // --- UPGRADABILITY: PLUGGABLE MODULAR ARCHITECTURE ---
+    address public economicPluginModule; // Address placeholder for future business logic/tax expansions
+
     // --- EVENTS ---
 
     event AssetRegistered(uint256 indexed assetId, string name, string coordinates, uint256 rewardValueWei);
-    event ScrapProcessed(uint256 indexed assetId, address indexed smelter, address indexed scrapper, uint256 totalReward);
+    event PartialScrapProcessed(uint256 indexed assetId, address indexed scrapper, uint256 deliveredWeight, uint256 rewardPaid);
+    event DebrisClosed(uint256 indexed assetId);
     event FundsDeposited(address indexed beneficiary, uint256 amount);
     event FundsWithdrawn(address indexed beneficiary, uint256 amount);
-    event UnclaimedFundsReclaimed(address indexed beneficiary, uint256 amount);
     event SocialHubRegistered(address indexed hubAddress, address indexed fundsWallet, string name);
 
-    // --- MODIFIERS ---
+    // --- ACCESS MODIFIERS ---
 
     modifier onlyAdmin() {
-        require(msg.sender == admin, "Caller is not admin");
+        require(msg.sender == admin, "Auth: Caller is not admin");
+        _;
+    }
+
+    modifier onlySatellite() {
+        require(msg.sender == satelliteController, "Auth: Only registered Satellite allowed!");
         _;
     }
 
@@ -63,69 +75,105 @@ contract OrbitalDebrisReclamation {
         admin = msg.sender;
     }
 
-    // --- 1. ASSET REGISTRATION (Gas-Optimized: external + calldata) ---
-
-    function registerDroppedAsset(
-        string calldata _name,
-        string calldata _coordinates, // E.g., "Nevada, Area 51" or "Texas, Sector 4"
-        MetalType _metalType,
-        uint256 _weightKg
-    ) external payable onlyAdmin {
-        require(msg.value > 0, "Reward value must be greater than zero");
-
-        uint256 assetId = nextAssetId;
-
-        trackedDebris[assetId] = DebrisObject({
-            id: assetId,
-            name: _name,
-            coordinates: _coordinates,
-            metalType: _metalType,
-            weightKg: _weightKg,
-            rewardValueWei: msg.value,
-            isRecycled: false
-        });
-
-        nextAssetId++;
-
-        emit AssetRegistered(assetId, _name, _coordinates, msg.value);
+    // --- ⚙️ INTER-CONTRACT LINKING & UPDATES ---
+    
+    function setSatelliteController(address _satellite) external onlyAdmin {
+        require(_satellite != address(0), "Invalid satellite address");
+        satelliteController = _satellite;
     }
 
-    // --- 2. SCRAP PROCESSING & REWARD DISTRIBUTION ---
+    function setEconomicPluginModule(address _newModule) external onlyAdmin {
+        require(_newModule != address(0), "Invalid module address");
+        economicPluginModule = _newModule;
+    }
 
-    function processScrap(
+    // --- 🛰️ 1. CROSS-CHAIN INTEROP: Orbit Autopilot locks budget via Lit VM ---
+    function lockDebrisBudget(uint256 _targetId, uint256 _amount) external onlySatellite returns (bool) {
+        require(!trackedDebris[_targetId].exists, "Base: Asset already locked");
+        require(address(this).balance >= _amount, "Base: Insufficient global ETH liquidity inside the vault!");
+
+        // Initializes a dynamic target mapping. Specs will be updated upon physical arrival
+        trackedDebris[_targetId] = DebrisObject({
+            id: _targetId,
+            name: "Orbit-Captured Scrap",
+            coordinates: "In Orbital Transit",
+            metalType: MetalType.Titanium, 
+            totalWeightKg: 0, 
+            processedWeightKg: 0,
+            rewardValueWei: _amount,
+            paidOutWei: 0,
+            isFullyRecycled: false,
+            exists: true
+        });
+
+        return true;
+    }
+
+    // Invoked by the satellite to push refined physics data once the corridor is clear
+    function updateTargetSpecs(uint256 _targetId, uint256 _weightKg, MetalType _type) external onlySatellite {
+        require(trackedDebris[_targetId].exists, "Base: Target not found");
+        trackedDebris[_targetId].totalWeightKg = _weightKg;
+        trackedDebris[_targetId].metalType = _type;
+    }
+
+    // --- 🌍 2. EARTH OPERATIONS: Fractional Scrap Processing ---
+    /**
+     * @notice Handles fragmented debris retrieval (e.g., object broke down into separate parts).
+     * @param _deliveredWeight Mass in kilograms delivered by a specific field scrapper.
+     */
+    function processPartialScrap(
         uint256 _assetId,
+        uint256 _deliveredWeight,
         address _smelterAddress,
         address _scrapperAddress
     ) external onlyAdmin {
         DebrisObject storage debris = trackedDebris[_assetId];
 
-        require(!debris.isRecycled, "Asset already recycled");
-        require(_smelterAddress != address(0), "Invalid smelter address");
-        require(_scrapperAddress != address(0), "Invalid scrapper address");
+        require(debris.exists, "Asset does not exist");
+        require(!debris.isFullyRecycled, "Asset is already fully recycled and closed");
+        require(_deliveredWeight > 0, "Weight must be greater than zero");
 
-        debris.isRecycled = true;
-
-        recycledMetalsKg[debris.metalType] += debris.weightKg;
-
-        uint256 totalValue = debris.rewardValueWei;
-        uint256 smelterReward = (totalValue * 80) / 100;
-        uint256 scrapperReward = totalValue - smelterReward;
-
-        _addPendingBalance(_smelterAddress, smelterReward);
-
-        // Check if the scrapper address is registered as an active Social Relief Hub
-        if (socialHubs[_scrapperAddress].isActive) {
-            // Funds are routed directly to the Social Fund Vault
-            _addPendingBalance(socialHubs[_scrapperAddress].walletAddress, scrapperReward);
-        } else {
-            // Funds are routed to the regular scrapper address
-            _addPendingBalance(_scrapperAddress, scrapperReward);
+        // Protection against scrap inflation (cannot deliver more than registered by the satellite)
+        if (debris.totalWeightKg > 0) {
+            require(debris.processedWeightKg + _deliveredWeight <= debris.totalWeightKg, "Error: Delivered weight exceeds satellite specs!");
         }
 
-        emit ScrapProcessed(_assetId, _smelterAddress, _scrapperAddress, totalValue);
+        // Proportional reward scaling formula
+        uint256 pieceReward = (debris.rewardValueWei * _deliveredWeight) / debris.totalWeightKg;
+        
+        // Safeguard to prevent math overflows beyond the initially locked budget pool
+        if (debris.paidOutWei + pieceReward > debris.rewardValueWei) {
+            pieceReward = debris.rewardValueWei - debris.paidOutWei;
+        }
+
+        // State changes
+        debris.processedWeightKg += _deliveredWeight;
+        debris.paidOutWei += pieceReward;
+        recycledMetalsKg[debris.metalType] += _deliveredWeight;
+
+        // Core DePIN 80/20 commercial split
+        uint256 smelterShare = (pieceReward * 80) / 100;
+        uint256 scrapperShare = pieceReward - smelterShare;
+
+        _addPendingBalance(_smelterAddress, smelterShare);
+
+        // Zero-Barrier Onboarding Integration (Social Relief Hub Routing)
+        if (socialHubs[_scrapperAddress].isActive) {
+            _addPendingBalance(socialHubs[_scrapperAddress].walletAddress, scrapperShare);
+        } else {
+            _addPendingBalance(_scrapperAddress, scrapperShare);
+        }
+
+        emit PartialScrapProcessed(_assetId, _scrapperAddress, _deliveredWeight, pieceReward);
+
+        // Closes the asset card permanently if total physical volume matches orbit calculations
+        if (debris.processedWeightKg == debris.totalWeightKg) {
+            debris.isFullyRecycled = true;
+            emit DebrisClosed(_assetId);
+        }
     }
 
-    // --- 3. WITHDRAWAL (Pull Payment Pattern) ---
+    // --- 3. WITHDRAWAL MANAGEMENT (Pull Payment Pattern) ---
 
     function withdraw() external {
         uint256 amount = pendingBalances[msg.sender].amount;
@@ -140,49 +188,18 @@ contract OrbitalDebrisReclamation {
         emit FundsWithdrawn(msg.sender, amount);
     }
 
-    // --- 4. RECLAIM UNCLAIMED FUNDS (30-Day Expiration) ---
-
-    function reclaimUnclaimedFunds(address _abandonedAddress) external onlyAdmin {
-        Deposit storage dep = pendingBalances[_abandonedAddress];
-        require(dep.amount > 0, "No funds to reclaim");
-        require(block.timestamp >= dep.timestamp + 30 days, "Hold period not expired (30 days)");
-
-        uint256 reclaimedAmount = dep.amount;
-        dep.amount = 0;
-        dep.timestamp = 0;
-
-        (bool success, ) = admin.call{value: reclaimedAmount}("");
-        require(success, "Reclaim transfer failed");
-
-        emit UnclaimedFundsReclaimed(_abandonedAddress, reclaimedAmount);
-    }
-
-    // --- 5. SOCIAL RELIEF HUB MANAGEMENT ---
-
-    function registerSocialHub(
-        address _hubAddress, 
-        address _fundsWallet, 
-        string calldata _hubName
-    ) external onlyAdmin {
+    function registerSocialHub(address _hubAddress, address _fundsWallet, string calldata _hubName) external onlyAdmin {
         require(_hubAddress != address(0) && _fundsWallet != address(0), "Invalid address");
-        
-        socialHubs[_hubAddress] = SocialReliefHub({
-            hubName: _hubName,
-            walletAddress: _fundsWallet, // Designated fund vault
-            isActive: true
-        });
-
+        socialHubs[_hubAddress] = SocialReliefHub({hubName: _hubName, walletAddress: _fundsWallet, isActive: true});
         emit SocialHubRegistered(_hubAddress, _fundsWallet, _hubName);
     }
 
     // --- INTERNAL FUNCTIONS ---
 
     function _addPendingBalance(address _beneficiary, uint256 _amount) internal {
-        // Reset timer only if the balance was zero (prevents lockup reset for active accounts)
         if (pendingBalances[_beneficiary].amount == 0) {
             pendingBalances[_beneficiary].timestamp = block.timestamp;
         }
-
         pendingBalances[_beneficiary].amount += _amount;
         emit FundsDeposited(_beneficiary, _amount);
     }
