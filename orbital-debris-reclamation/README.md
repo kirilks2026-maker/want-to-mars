@@ -1,23 +1,23 @@
 # 🛰️ Orbital Debris Reclamation & DePIN Recycling System (v3.0)
-An advanced, cross-chain DePIN (Decentralized Physical Infrastructure) & Social Impact smart contract built on Solidity (^0.8.20) for the "Want to Mars" ecosystem (Galileo Network / SimpleChain).
+An advanced DePIN (Decentralized Physical Infrastructure) & Social Impact smart contract built on Solidity (^0.8.20) for the "Want to Mars" ecosystem (Galileo Network).
 
-## 🚀 Cross-Chain Deployment Info
+## 🚀 Deployment Info
 * **Contract Address (This Base/Vault):** 0x821273fccd93cca8a1f357c94c9ef83c6b5c6829
-* **Linked Orbit Autopilot (LitVM):** 0xd1837aBD2E9796900DeE10DC6C1D70833a1eE291
+* **Linked Autonomous Orbit Controller:** 0xd1837aBD2E9796900DeE10DC6C1D70833a1eE291
 * **Compiler Version:** Solidity v0.8.34 (Optimization: No, EVM: Osaka)
 
 📜 Scenario & Mechanics
-This smart contract manages the physical reclamation, tracking, and incentivized recycling of fallen aerospace/orbital debris with built-in social relief fund routing and cross-chain automation:
+This smart contract manages the physical reclamation, tracking, and incentivized recycling of fallen aerospace/orbital debris with built-in social relief fund routing and decentralized automation:
 
-* **Cross-Chain Budget Locking**: The linked satellite controller on LitVM can directly trigger budget reservation (`lockDebrisBudget`) inside this vault prior to physical orbital capture.
-* **DePIN Asset Registration**: The central admin or linked satellite registers dropped orbital scrap specifying tracking specs, metal composition (Titanium, Aluminum, Steel, Copper, RareEarth), and weight.
+* **Inter-Contract Budget Locking**: The linked orbital autopilot controller can directly trigger budget reservation (`lockDebrisBudget`) inside this vault prior to physical orbital capture.
+* **DePIN Asset Registration**: The central admin or linked contract registers dropped orbital scrap specifying tracking specs, metal composition (Titanium, Aluminum, Steel, Copper, RareEarth), and weight.
 * **Automated Reward Split**: Upon recycling verification, rewards are distributed via an 80/20 split:
   * 80% to the primary Smelter Facility.
   * 20% to the field Scrapper / Collector.
 * **Social Relief Hub Integration**: If a scrapper address is registered as an active Social Relief Hub, its 20% share is automatically rerouted to a secured multisig fund vault.
 * **Pull Payment & Expiration**: Beneficiaries withdraw earned yield via a secure pull-payment pattern. Unclaimed rewards inactive for >30 days can be reclaimed by administration.
 
-🔄 Version 3.0 Refactoring Highlights (Cross-Chain Upgradability Patch)
+🔄 Version 3.0 Refactoring Highlights (Modular Upgradability Patch)
 * **Fractional Scrap Processing**: Handles fragmented debris. If an object broke apart during atmospheric entry, the contract scales rewards proportionally based on actual delivered weight.
 * **Pluggable Modular Architecture**: Introduced the `economicPluginModule` state slot to connect future tax or business logic updates without modifying core linked code.
 * **Inter-Contract Synchronization**: Integrated strict access controls (`onlySatellite`) to securely sync real-time orbital calculations with terrestrial financial vaults.
@@ -49,6 +49,5 @@ The **Social Relief Hub** module is specifically engineered to bridge the gap be
 🚀 Technical Overview
 * **Solidity Version:** ^0.8.20
 * **License:** MIT
-* **Ecosystem:** Galileo Network / SimpleChain / LitVM Interop
+* **Ecosystem:** Galileo Network / Custom Multi-Layer Infrastructure
 * **Category:** DePIN / Real World Recycling / Social Impact
-
