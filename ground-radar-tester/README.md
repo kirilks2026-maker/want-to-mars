@@ -48,7 +48,7 @@ The 700MB data payload benchmark per single orbital target is not an arbitrary m
 ---
 
 ## 🚀 Deployment Info
-* **Contract Address (This Ground Radar Core):** ВСТАВЬ_СЮДА_АДРЕС_ТВОЕГО_НОВОГО_КОНТРАКТА_ИЗ_REMIX
+* **Contract Address (This Ground Radar Core): 0x6c965D4BD8EBA6098c6bbE4b6b9488bf8d3469Ee
 * **Network Target:** 0G Labs Galileo Testnet (EVM Compatibility Layer)
 * **Compiler Version:** Solidity v0.8.34 (Optimization: No, EVM: Osaka)
 * **License Model:** MIT
