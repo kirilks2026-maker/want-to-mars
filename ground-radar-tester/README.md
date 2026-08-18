@@ -43,7 +43,9 @@ The 700MB data payload benchmark per single orbital target is not an arbitrary m
 
 ### 3. Off-Chain Consumer Gateways (`getTrackSpecs`)
 * **Mechanism**: Zero-gas external view handler designed for instantaneous metadata packet retrieval.
-* **Operational Flow**: Acts as an uninterrupted interface for Ground Control, Autonomous AI-Agents, and dApp interfaces to query full telemetry specifications directly from the chain index.                                                                                                                                                                                                                           ### 3.1. AI Model Alignment & Ecosystem Processing
+* **Operational Flow**: Acts as an uninterrupted interface for Ground Control, Autonomous AI-Agents, and dApp interfaces to query full telemetry specifications directly from the chain index.
+                                                                                                                                          
+### 3.1. AI Model Alignment & Ecosystem Processing
 The off-chain consumer gateways are structured to pipe real-time orbital tracking datasets directly into decentralized AI inferencing networks hosted natively on the 0G Compute infrastructure. 
 
 The simulated telemetry Merkle roots and high-frequency stream packet outputs are specifically calibrated for direct parallel ingestion by:
